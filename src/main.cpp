@@ -15,10 +15,25 @@ using namespace std;
 // for convenience
 using json = nlohmann::json;
 
+struct sensor_fusion_data
+{
+    unsigned int id;
+    double x;
+    double y;
+    double vx;
+    double vy;
+    double s;
+    double d;
+};
+
 // For converting back and forth between radians and degrees.
 constexpr double pi() { return M_PI; }
-double deg2rad(double x) { return x * pi() / 180; }
-double rad2deg(double x) { return x * 180 / pi(); }
+double deg2rad(double x) { return (x * pi()  / 180.0); }
+double rad2deg(double x) { return (x * 180.0 / pi() ); }
+
+// For converting back and forth between Miles per hour and meters per second.
+double Mph2mps(double x) { return (x * 1.60934 / 3.6); }
+double mps2Mph(double x) { return (x * 3.6 / 1.60934); }
 
 // Checks if the SocketIO event has JSON data.
 // If there is data the JSON object in string format will be returned,
@@ -160,6 +175,39 @@ vector<double> getXY(double s, double d, const vector<double> &maps_s, const vec
     return {x,y};
 }
 
+int find_lane(double d)
+{
+    static const double d_min_lane_0 = 0.0;
+    static const double d_max_lane_0 = 4.0;
+    static const double d_min_lane_1 = d_min_lane_0 + 4.0;
+    static const double d_max_lane_1 = d_max_lane_0 + 4.0;
+    static const double d_min_lane_2 = d_min_lane_1 + 4.0;
+    static const double d_max_lane_2 = d_max_lane_1 + 4.0;
+
+    int ret = -1;
+
+    if( (d > d_min_lane_0) && (d < d_max_lane_0) )
+    {
+        ret = 0;
+    }
+    else if( (d > d_min_lane_1) && (d < d_max_lane_1) )
+    {
+        ret = 1;
+    }
+    else if( (d > d_min_lane_2) && (d < d_max_lane_2) )
+    {
+        ret = 2;
+    }
+    else
+    {
+        std::cout << "Error! Not within lanes!" << std::endl;
+    }
+
+    return ret;
+}
+
+
+
 int main()
 {
   uWS::Hub h;
@@ -198,10 +246,11 @@ int main()
       map_waypoints_dy.push_back(d_y);
   }
 
-  int lane = 1;
+  int lane = 0;
+  int lane_to_change = 0;
   double ref_vel = 0.0;
 
-  h.onMessage([&map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy, &lane, &ref_vel](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
+  h.onMessage([&map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy, &lane, &lane_to_change, &ref_vel](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                      uWS::OpCode opCode) {
     // "42" at the start of the message means there's a websocket message event.
     // The 4 signifies a websocket message
@@ -232,15 +281,16 @@ int main()
               // Previous path data given to the Planner
               auto previous_path_x = j[1]["previous_path_x"];
               auto previous_path_y = j[1]["previous_path_y"];
-              // Previous path's end s and d values 
+              // Previous path's end s and d values
               double end_path_s = j[1]["end_path_s"];
               double end_path_d = j[1]["end_path_d"];
 
               // Sensor Fusion Data, a list of all other cars on the same side of the road.
               auto sensor_fusion = j[1]["sensor_fusion"];
 
-
               unsigned int prev_size = previous_path_x.size();
+
+              std::cout << "Remaining size of previous path: " << prev_size << std::endl;
 
               //Avoidance:
               if(prev_size > 0)
@@ -248,11 +298,91 @@ int main()
                     car_s = end_path_s;
               }
 
+              lane = find_lane(car_d);
+
               bool too_close = false;
 
+              //@TODO: Need to know what lane currently the car is on!
+
+              std::cout << "Car, X: " << car_x << ", Y: " << car_y << ", S: " << car_s << ", d: " << car_d  << ", lane: " << lane << std::endl;
+
+              vector< vector<sensor_fusion_data> > cars_on_lanes(3);
+
+              sensor_fusion_data temp_data;
+              int lane_id = 0;
+
+              //Splitting other car sensor fusion data on lanes
+              for(unsigned int i = 0; i < sensor_fusion.size(); ++i)
+              {
+                  std::cout << "Sensor Fusion data"
+                            << ", Id: " << sensor_fusion[i][0]
+                            << ", X: "  << sensor_fusion[i][1]
+                            << ", Y: "  << sensor_fusion[i][2]
+                            << ", vx: " << sensor_fusion[i][3]
+                            << ", vy: " << sensor_fusion[i][4]
+                            << ", s: "  << sensor_fusion[i][5]
+                            << ", d: "  << sensor_fusion[i][6]
+                            << ", ";
+
+                  temp_data.id = sensor_fusion[i][0];
+                  temp_data.x  = sensor_fusion[i][1];
+                  temp_data.y  = sensor_fusion[i][2];
+                  temp_data.vx = sensor_fusion[i][3];
+                  temp_data.vy = sensor_fusion[i][4];
+                  temp_data.s  = sensor_fusion[i][5];
+                  temp_data.d  = sensor_fusion[i][6];
+
+                  lane_id = find_lane(temp_data.d);
+
+                  if(lane_id >= 0)
+                  {
+                      cars_on_lanes[lane_id].push_back(temp_data);
+
+                      std::cout << lane_id << std::endl;
+                  }
+              }
+
+              //@TODO: The code below if for Keeping Lane
+              for(unsigned int i = 0; i < cars_on_lanes[lane].size(); ++i)
+              {
+                  double vx = cars_on_lanes[lane][i].vx;
+                  double vy = cars_on_lanes[lane][i].vy;
+                  double check_speed = sqrt(vx * vx + vy * vy);
+                  double check_car_s = cars_on_lanes[lane][i].s + prev_size * 0.02 * check_speed;
+
+                  if( (check_car_s > car_s) && ((check_car_s - car_s) < 30))
+                  {
+                      std::cout << "Getting too close!" << std::endl;
+
+                      too_close = true;
+
+                      //@TODO: this is where the Finite State Machine of behaviour planning comes in!
+                      if(0 == lane)
+                          lane_to_change = 1; //Avoid to the right
+                      else if(1 == lane)
+                          lane_to_change = 0; //Avoid to the left
+                      else
+                          lane_to_change = 1; //Avoid to the left
+                  }
+                  else
+                  {
+                      std::cout << "Not getting too close" << std::endl;
+
+                      lane_to_change = lane;
+                  }
+              }
+
+              /*
               for(unsigned int i = 0; i < sensor_fusion.size(); ++i)
               {
                     float d = sensor_fusion[i][6];
+
+                            too_close = true;
+
+                            //@TODO: this is where the Finite State Machine of behaviour planning comes in!
+                            if(0 == lane) lane = 1; //Avoid to the right
+                            else if(1 == lane) lane = 0; //Avoid to the left
+                            else lane = 1; //Avoid to the left
 
                     //If the other car at i is on the same lane
                     if( (d < (2.0 + 4.0 * lane + 2.0)) && ( d > (2.0 + 4.0 * lane - 2)) )
@@ -276,26 +406,19 @@ int main()
                         }
                     }
               }
+              */
 
+              //Slowing down or speeding up at 0.1 m/s in 0.02 seconds or 5 m/s2
               if(too_close)
               {
-                  ref_vel -= 0.224;
+                  ref_vel -= mps2Mph(0.16);
               }
               else if(ref_vel < 49.5)
               {
-                  ref_vel += 0.224;
+                  ref_vel += mps2Mph(0.16);
               }
 
-
-              ///
-
-
-
-
-
-
-              // TODO: define a path made up of (x,y) points that the car will visit sequentially every .02 seconds
-              //List of point for spline
+              //Trajectory generation
               vector<double> ptsx;
               vector<double> ptsy;
 
@@ -332,9 +455,9 @@ int main()
               }
 
               //In Frenet frame add 3 points 30m spaced ahead of the staring frame
-              vector<double> next_wp0 = getXY(car_s + 30.0, (2.0 + 4.0 * lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
-              vector<double> next_wp1 = getXY(car_s + 60.0, (2.0 + 4.0 * lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
-              vector<double> next_wp2 = getXY(car_s + 90.0, (2.0 + 4.0 * lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+              vector<double> next_wp0 = getXY(car_s + 30.0, (2.0 + 4.0 * lane_to_change), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+              vector<double> next_wp1 = getXY(car_s + 60.0, (2.0 + 4.0 * lane_to_change), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+              vector<double> next_wp2 = getXY(car_s + 90.0, (2.0 + 4.0 * lane_to_change), map_waypoints_s, map_waypoints_x, map_waypoints_y);
 
               ptsx.push_back(next_wp0[0]);
               ptsx.push_back(next_wp1[0]);
@@ -343,6 +466,7 @@ int main()
               ptsy.push_back(next_wp0[1]);
               ptsy.push_back(next_wp1[1]);
               ptsy.push_back(next_wp2[1]);
+
 
               for(unsigned int i = 0; i < ptsx.size(); ++i)
               {
@@ -370,33 +494,28 @@ int main()
 
               double target_x = 30.0;
               double target_y = s(target_x);
+
               double target_dist = sqrt((target_x * target_x) + (target_y * target_y));
+              double N           = target_dist / (0.02 * Mph2mps(ref_vel));
+              double delta_x     = target_x / N;
 
               double x_add_on = 0.0;
-
               for(unsigned int i = 0; i <= (50 - previous_path_x.size()); ++i)
               {
-
-                  //TODO: Change reference velocity for each waypoint (at 0.02 second?)
-                  double N = (target_dist / (0.02 * ref_vel / 2.24));
-                  double x_point = x_add_on + (target_x / N);
-                  double y_point = s(x_point);
-
-                  x_add_on = x_point;
-
-                  double x_ref = x_point;
-                  double y_ref = y_point;
+                  double x_local = x_add_on + (target_x / N);
+                  double y_local = s(x_local);
 
                   //Coverting points from local frame back to global frame
-                  x_point = (x_ref * cos(ref_yaw) - y_ref * sin(ref_yaw)) + ref_x;
-                  y_point = (x_ref * sin(ref_yaw) + y_ref * cos(ref_yaw)) + ref_y;
+                  double x_global = (x_local * cos(ref_yaw) - y_local * sin(ref_yaw)) + ref_x;
+                  double y_global = (x_local * sin(ref_yaw) + y_local * cos(ref_yaw)) + ref_y;
 
-                  next_x_vals.push_back(x_point);
-                  next_y_vals.push_back(y_point);
+                  next_x_vals.push_back(x_global);
+                  next_y_vals.push_back(y_global);
+
+                  x_add_on = x_local;
               }
 
-
-              /////////////////////////////////////////////////////////////
+              //---------------------------------------------------------------
 
               json msgJson;
 
