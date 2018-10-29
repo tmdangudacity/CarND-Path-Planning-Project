@@ -177,10 +177,15 @@ vector<double> getXY(double s, double d, const vector<double> &maps_s, const vec
 
 int find_lane(double d)
 {
+    //Lane 0 limits
     static const double d_min_lane_0 = 0.0;
     static const double d_max_lane_0 = 4.0;
+
+    //Lane 1 limits
     static const double d_min_lane_1 = d_min_lane_0 + 4.0;
     static const double d_max_lane_1 = d_max_lane_0 + 4.0;
+
+    //Lane 2 limits
     static const double d_min_lane_2 = d_min_lane_1 + 4.0;
     static const double d_max_lane_2 = d_max_lane_1 + 4.0;
 
@@ -206,7 +211,31 @@ int find_lane(double d)
     return ret;
 }
 
+vector<vector<int>> lanes_to_check_for_change(int current_lane)
+{
+    vector<vector<int>> ret(2);
+    ret[0].clear();
+    ret[1].clear();
 
+    if(0 == current_lane)
+    {   //1 is immediate lane to change to the Right. 2 is lane to check if other cars could potentially change lane
+        ret[1] = {1, 2};
+    }
+    else if(1 == current_lane)
+    {   // 0 is immediate lane to change to the Left.
+        ret[0] = {0};
+
+        // 2 is immediate lane to change to the Right
+        ret[1] = {2};
+    }
+    else if(2 == current_lane)
+    {
+        // 1 is immediate lane to change to the Right. 0 is lane to check if other cars could potentially change lane
+        ret[0] = {1, 0};
+    }
+
+    return ret;
+}
 
 int main()
 {
@@ -294,17 +323,13 @@ int main()
 
               //Avoidance:
               if(prev_size > 0)
-              {    //Car S at the end of the currently remaining path from last generation
-                    car_s = end_path_s;
+              {   //Car S at the end of the currently remaining path from last generation
+                  car_s = end_path_s;
               }
 
               lane = find_lane(car_d);
-
-              bool too_close = false;
-
-              //@TODO: Need to know what lane currently the car is on!
-
               std::cout << "Car, X: " << car_x << ", Y: " << car_y << ", S: " << car_s << ", d: " << car_d  << ", lane: " << lane << std::endl;
+
 
               vector< vector<sensor_fusion_data> > cars_on_lanes(3);
 
@@ -342,7 +367,9 @@ int main()
                   }
               }
 
-              //@TODO: The code below if for Keeping Lane
+              bool too_close = false;
+
+              //Keeping current lane. Checking against all car on the current lane.
               for(unsigned int i = 0; i < cars_on_lanes[lane].size(); ++i)
               {
                   double vx = cars_on_lanes[lane][i].vx;
@@ -350,65 +377,58 @@ int main()
                   double check_speed = sqrt(vx * vx + vy * vy);
                   double check_car_s = cars_on_lanes[lane][i].s + prev_size * 0.02 * check_speed;
 
-                  if( (check_car_s > car_s) && ((check_car_s - car_s) < 30))
+                  if( (check_car_s > car_s) && ((check_car_s - car_s) < 30.0))
                   {
                       std::cout << "Getting too close!" << std::endl;
 
                       too_close = true;
-
-                      //@TODO: this is where the Finite State Machine of behaviour planning comes in!
-                      if(0 == lane)
-                          lane_to_change = 1; //Avoid to the right
-                      else if(1 == lane)
-                          lane_to_change = 0; //Avoid to the left
-                      else
-                          lane_to_change = 1; //Avoid to the left
-                  }
-                  else
-                  {
-                      std::cout << "Not getting too close" << std::endl;
-
-                      lane_to_change = lane;
                   }
               }
 
-              /*
-              for(unsigned int i = 0; i < sensor_fusion.size(); ++i)
+              if(too_close)
               {
-                    float d = sensor_fusion[i][6];
+                  vector<vector<int>> lanes_for_change = lanes_to_check_for_change(lane);
 
-                            too_close = true;
+                  std::cout << "Current lane: " << lane << std::endl;
 
-                            //@TODO: this is where the Finite State Machine of behaviour planning comes in!
-                            if(0 == lane) lane = 1; //Avoid to the right
-                            else if(1 == lane) lane = 0; //Avoid to the left
-                            else lane = 1; //Avoid to the left
+                  if(lanes_for_change[0].size())
+                  {
+                      std::cout << "Lanes to the Left for change: ";
+                      for(unsigned int i = 0; i < lanes_for_change[0].size(); ++i)
+                      {
+                          std::cout << ", " << lanes_for_change[0][i];
+                      }
+                      std::cout << endl;
+                  }
 
-                    //If the other car at i is on the same lane
-                    if( (d < (2.0 + 4.0 * lane + 2.0)) && ( d > (2.0 + 4.0 * lane - 2)) )
-                    {
-                        double vx = sensor_fusion[i][3];
-                        double vy = sensor_fusion[i][4];
-                        double check_speed = sqrt(vx * vx + vy * vy);
-                        double check_car_s = sensor_fusion[i][5];
+                  if(lanes_for_change[1].size())
+                  {
+                      std::cout << "Lanes to the Right for change: ";
+                      for(unsigned int i = 0; i < lanes_for_change[1].size(); ++i)
+                      {
+                          std::cout << ", " << lanes_for_change[1][i];
+                      }
+                      std::cout << endl;
+                  }
 
-                        //Predict s of the other car at the end of currently remaining number of ticks
-                        check_car_s += prev_size * 0.02 * check_speed;
+                  //@TODO: Check traffic on potential lanes to the Left and lanes to the right
 
-                        if((check_car_s > car_s) && ((check_car_s - car_s) < 30))
-                        {
-                            too_close = true;
 
-                            //@TODO: this is where the Finite State Machine of behaviour planning comes in!
-                            if(0 == lane) lane = 1; //Avoid to the right
-                            else if(1 == lane) lane = 0; //Avoid to the left
-                            else lane = 1; //Avoid to the left
-                        }
-                    }
+                  //@TODO: this is where the Finite State Machine of behaviour planning comes in!
+                  if(0 == lane)
+                      lane_to_change = 1; //Avoid to the right
+                  else if(1 == lane)
+                      lane_to_change = 0; //Avoid to the left
+                  else
+                      lane_to_change = 1; //Avoid to the left
               }
-              */
+              else
+              {
+                  lane_to_change = lane;
+              }
 
               //Slowing down or speeding up at 0.1 m/s in 0.02 seconds or 5 m/s2
+              //@TODO: Only slowing down if too close and can't change lane.
               if(too_close)
               {
                   ref_vel -= mps2Mph(0.16);
@@ -418,6 +438,7 @@ int main()
                   ref_vel += mps2Mph(0.16);
               }
 
+              //---------------------------------------------------------------
               //Trajectory generation
               vector<double> ptsx;
               vector<double> ptsy;
@@ -444,6 +465,16 @@ int main()
 
                   double ref_x_prev = previous_path_x[prev_size - 2];
                   double ref_y_prev = previous_path_y[prev_size - 2];
+              //Slowing down or speeding up at 0.1 m/s in 0.02 seconds or 5 m/s2
+              if(too_close)
+              {
+                  ref_vel -= mps2Mph(0.16);
+              }
+              else if(ref_vel < 49.5)
+              {
+                  ref_vel += mps2Mph(0.16);
+              }
+
 
                   ref_yaw = atan2((ref_y - ref_y_prev), (ref_x - ref_x_prev));
 
