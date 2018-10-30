@@ -237,6 +237,40 @@ vector<vector<int>> lanes_to_check_for_change(int current_lane)
     return ret;
 }
 
+void distance_check(const vector<sensor_fusion_data>& check_cars, double proj_time, double proj_s, double& min_distance_front, double& min_distance_back)
+{
+    double vx    = 0.0;
+    double vy    = 0.0;
+    double speed = 0.0;
+    double ds    = 0.0;
+
+    min_distance_front = 0.0;
+    min_distance_back  = 0.0;
+
+    for(unsigned int i = 0; i < check_cars.size(); ++i)
+    {
+        vx    = check_cars[i].vx;
+        vy    = check_cars[i].vy;
+        speed = sqrt(vx * vx + vy * vy);
+        ds    = check_cars[i].s + proj_time * speed - proj_s;
+
+        if(ds >= 0.0)
+        {
+            if( (0 == i) || (ds < min_distance_front) )
+            {
+                min_distance_front = ds;
+            }
+        }
+        else
+        {
+            if( (0 == i) || (ds > (-min_distance_back)))
+            {
+                min_distance_back = -ds;
+            }
+        }
+    }
+}
+
 int main()
 {
   uWS::Hub h;
@@ -391,6 +425,7 @@ int main()
 
                   std::cout << "Current lane: " << lane << std::endl;
 
+                  //Left lane change
                   if(lanes_for_change[0].size())
                   {
                       std::cout << "Lanes to the Left for change: ";
@@ -401,6 +436,7 @@ int main()
                       std::cout << endl;
                   }
 
+                  //Right lane change
                   if(lanes_for_change[1].size())
                   {
                       std::cout << "Lanes to the Right for change: ";
@@ -424,6 +460,7 @@ int main()
               }
               else
               {
+                  //Keeping current lane
                   lane_to_change = lane;
               }
 
