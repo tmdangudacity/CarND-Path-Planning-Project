@@ -203,10 +203,12 @@ int find_lane(double d)
     {
         ret = 2;
     }
+    /*
     else
     {
         std::cout << "Error! Not within lanes!" << std::endl;
     }
+    */
 
     return ret;
 }
@@ -273,6 +275,9 @@ void distance_check(const vector<sensor_fusion_data>& check_cars, double proj_ti
             }
         }
     }
+
+    if(!front_started) closest_d_front =  10000.0; //If no car on the front
+    if(!back_started)  closest_d_back  = -10000.0; //If no car behind
 }
 
 int main()
@@ -362,6 +367,7 @@ int main()
 
               for(unsigned int i = 0; i < sensor_fusion.size(); ++i)
               {
+                  /*
                   std::cout << "Sensor Fusion data"
                             << ", Id: " << sensor_fusion[i][0]
                             << ", X: "  << sensor_fusion[i][1]
@@ -371,6 +377,7 @@ int main()
                             << ", s: "  << sensor_fusion[i][5]
                             << ", d: "  << sensor_fusion[i][6]
                             << ", ";
+                  */
 
                   temp_data.id = sensor_fusion[i][0];
                   temp_data.x  = sensor_fusion[i][1];
@@ -385,7 +392,7 @@ int main()
                   if(lane_id >= 0)
                   {
                       cars_on_lanes[lane_id].push_back(temp_data);
-                      std::cout << lane_id << std::endl;
+                      //std::cout << lane_id << std::endl;
                   }
               }
 
@@ -401,7 +408,12 @@ int main()
                   proj_s = end_path_s;
               }
 
+              //Current lane
               lane = find_lane(car_d);
+
+              //Potential lane to change
+              lane_to_change = lane;
+
               //std::cout << "Car, X: " << car_x << ", Y: " << car_y << ", S: " << car_s << ", d: " << car_d  << ", lane: " << lane << std::endl;
 
               double d_front = 0.0;
@@ -409,60 +421,81 @@ int main()
 
               //Distance check for the current lane
               distance_check(cars_on_lanes[lane], (prev_size * 0.02), proj_s, car_s, d_front, d_back);
-
               std::cout << "Current lane: " << lane << ", Min D Front: " << d_front << ", Min D Back: " << d_back << std::endl;
 
-              bool too_close = (d_front > 0.0) && (d_front < 25.0);
+              //If the car is getting to close to one in front
+              bool check_lane_change = (d_front > 0.0) && (d_front < 25.0);
+              bool too_close = false;
 
-              if(too_close)
+              if(check_lane_change)
               {
+                  std::cout << "Start checking for lane change" << std::endl;
+
                   vector<vector<int>> lanes_for_change = lanes_to_check_for_change(lane);
 
-                  std::cout << "Current lane: " << lane << std::endl;
+                  //Set cost to max of 1.0 that means impossible to change lane.
+                  double cost_change_left  = 1.0;
+                  double cost_change_right = 1.0;
 
                   //Left lane change
                   if(lanes_for_change[0].size())
                   {
-                      std::cout << "Lanes to the Left for change: ";
-                      for(unsigned int i = 0; i < lanes_for_change[0].size(); ++i)
-                      {
-                          std::cout << ", " << lanes_for_change[0][i];
-                      }
-                      std::cout << endl;
+                      //@TODO: There could be one lane next to the left that cars can change lane
+                      int lane_on_left = lanes_for_change[0][0];
+                      double d_front_left = 0.0;
+                      double d_back_left  = 0.0;
+
+                      distance_check(cars_on_lanes[lane_on_left], (prev_size * 0.02), proj_s, car_s, d_front_left, d_back_left);
+                      std::cout << "Left lane: " << lane_on_left << ", Min D Front: " << d_front_left << ", Min D Back: " << d_back_left << std::endl;
+
+                      //@TODO: Calculate cost out from d_front_left and d_back_left 
                   }
 
                   //Right lane change
                   if(lanes_for_change[1].size())
                   {
-                      std::cout << "Lanes to the Right for change: ";
-                      for(unsigned int i = 0; i < lanes_for_change[1].size(); ++i)
-                      {
-                          std::cout << ", " << lanes_for_change[1][i];
-                      }
-                      std::cout << endl;
+
+                      //@TODO: There could be one lane next to the right that cars can change lane
+                      int lane_on_right = lanes_for_change[1][0];
+                      double d_front_right = 0.0;
+                      double d_back_right  = 0.0;
+
+                      distance_check(cars_on_lanes[lane_on_right], (prev_size * 0.02), proj_s, car_s, d_front_right, d_back_right);
+                      std::cout << "Right lane: " << lane_on_right << ", Min D Front: " << d_front_right << ", Min D Back: " << d_back_right << std::endl;
+
+                      //@TODO: Calculate cost out from d_front_right and d_back_right
                   }
 
-                  //@TODO: Check traffic on potential lanes to the Left and lanes to the right
+                  if( (cost_change_left < 1.0) && (cost_change_right < 1.0) )
+                  {
+                      if(cost_change_left > cost_change_right)
+                      {
+                          //Change to right lane, reset too_close to false
 
+                      }
+                      else
+                      {
+                          //Change to left lane, reset too_close to false
+                      }
+                  }
+                  else if(cost_change_left < 1.0)
+                  {
+                      //Can only change to left lane, reset too_close to false
 
-                  //@TODO: this is where the Finite State Machine of behaviour planning comes in!
-                  /*
-                  if(0 == lane)
-                      lane_to_change = 1; //Avoid to the right
-                  else if(1 == lane)
-                      lane_to_change = 0; //Avoid to the left
+                  }
+                  else if(cost_change_right < 1.0)
+                  {
+                      //Can only change to right lane
+                  }
                   else
-                      lane_to_change = 1; //Avoid to the left
-                  */
+                  {
+                       //Otherwise no change lane and slow down
+                       too_close = true;
+                       std::cout << "Getting too close and can't change lane. Slowing down!" << std::endl;
+                  }
               }
-              //else
-              //{
-                  //Keeping current lane
-                  lane_to_change = lane;
-              //}
 
               //Slowing down or speeding up at 0.1 m/s in 0.02 seconds or 5 m/s2
-              //@TODO: Only slowing down if too close and can't change lane.
               if(too_close)
               {
                   ref_vel -= mps2Mph(0.16);
@@ -499,17 +532,6 @@ int main()
 
                   double ref_x_prev = previous_path_x[prev_size - 2];
                   double ref_y_prev = previous_path_y[prev_size - 2];
-              //Slowing down or speeding up at 0.1 m/s in 0.02 seconds or 5 m/s2
-              if(too_close)
-              {
-                  ref_vel -= mps2Mph(0.16);
-              }
-              else if(ref_vel < 49.5)
-              {
-                  ref_vel += mps2Mph(0.16);
-              }
-
-
                   ref_yaw = atan2((ref_y - ref_y_prev), (ref_x - ref_x_prev));
 
                   ptsx.push_back(ref_x_prev);
