@@ -237,15 +237,15 @@ vector<vector<int>> lanes_to_check_for_change(int current_lane)
     return ret;
 }
 
-void distance_check(const vector<sensor_fusion_data>& check_cars, double proj_time, double proj_s, double& min_distance_front, double& min_distance_back)
+void distance_check(const vector<sensor_fusion_data>& check_cars, double proj_time, double proj_s, double current_s, double& closest_d_front, double& closest_d_back)
 {
     double vx    = 0.0;
     double vy    = 0.0;
     double speed = 0.0;
     double ds    = 0.0;
 
-    min_distance_front = 0.0;
-    min_distance_back  = 0.0;
+    bool front_started = false;
+    bool back_started  = false;
 
     for(unsigned int i = 0; i < check_cars.size(); ++i)
     {
@@ -254,18 +254,22 @@ void distance_check(const vector<sensor_fusion_data>& check_cars, double proj_ti
         speed = sqrt(vx * vx + vy * vy);
         ds    = check_cars[i].s + proj_time * speed - proj_s;
 
-        if(ds >= 0.0)
+        //A positive distance means a car is in front of our car in the future
+        //A negative distance means a car is behind of our car in the future
+        if(check_cars[i].s >= current_s)
         {
-            if( (0 == i) || (ds < min_distance_front) )
+            if( (!front_started) || (ds < closest_d_front) )
             {
-                min_distance_front = ds;
+                closest_d_front = ds;
+                front_started = true;
             }
         }
         else
         {
-            if( (0 == i) || (ds > (-min_distance_back)))
+            if( (!back_started)|| (ds > closest_d_back))
             {
-                min_distance_back = -ds;
+                closest_d_back = ds;
+                back_started = true;
             }
         }
     }
@@ -351,26 +355,11 @@ int main()
               // Sensor Fusion Data, a list of all other cars on the same side of the road.
               auto sensor_fusion = j[1]["sensor_fusion"];
 
-              unsigned int prev_size = previous_path_x.size();
-
-              std::cout << "Remaining size of previous path: " << prev_size << std::endl;
-
-              //Avoidance:
-              if(prev_size > 0)
-              {   //Car S at the end of the currently remaining path from last generation
-                  car_s = end_path_s;
-              }
-
-              lane = find_lane(car_d);
-              std::cout << "Car, X: " << car_x << ", Y: " << car_y << ", S: " << car_s << ", d: " << car_d  << ", lane: " << lane << std::endl;
-
-
+              //Splitting other car sensor fusion data on lanes
               vector< vector<sensor_fusion_data> > cars_on_lanes(3);
-
               sensor_fusion_data temp_data;
               int lane_id = 0;
 
-              //Splitting other car sensor fusion data on lanes
               for(unsigned int i = 0; i < sensor_fusion.size(); ++i)
               {
                   std::cout << "Sensor Fusion data"
@@ -396,28 +385,34 @@ int main()
                   if(lane_id >= 0)
                   {
                       cars_on_lanes[lane_id].push_back(temp_data);
-
                       std::cout << lane_id << std::endl;
                   }
               }
 
-              bool too_close = false;
+              unsigned int prev_size = previous_path_x.size();
+              //std::cout << "Remaining size of previous path: " << prev_size << std::endl;
 
-              //Keeping current lane. Checking against all car on the current lane.
-              for(unsigned int i = 0; i < cars_on_lanes[lane].size(); ++i)
+              //End of previous path.
+              double proj_s = car_s;
+
+              //Avoidance
+              if(prev_size > 0)
               {
-                  double vx = cars_on_lanes[lane][i].vx;
-                  double vy = cars_on_lanes[lane][i].vy;
-                  double check_speed = sqrt(vx * vx + vy * vy);
-                  double check_car_s = cars_on_lanes[lane][i].s + prev_size * 0.02 * check_speed;
-
-                  if( (check_car_s > car_s) && ((check_car_s - car_s) < 30.0))
-                  {
-                      std::cout << "Getting too close!" << std::endl;
-
-                      too_close = true;
-                  }
+                  proj_s = end_path_s;
               }
+
+              lane = find_lane(car_d);
+              //std::cout << "Car, X: " << car_x << ", Y: " << car_y << ", S: " << car_s << ", d: " << car_d  << ", lane: " << lane << std::endl;
+
+              double d_front = 0.0;
+              double d_back  = 0.0;
+
+              //Distance check for the current lane
+              distance_check(cars_on_lanes[lane], (prev_size * 0.02), proj_s, car_s, d_front, d_back);
+
+              std::cout << "Current lane: " << lane << ", Min D Front: " << d_front << ", Min D Back: " << d_back << std::endl;
+
+              bool too_close = (d_front > 0.0) && (d_front < 25.0);
 
               if(too_close)
               {
@@ -451,18 +446,20 @@ int main()
 
 
                   //@TODO: this is where the Finite State Machine of behaviour planning comes in!
+                  /*
                   if(0 == lane)
                       lane_to_change = 1; //Avoid to the right
                   else if(1 == lane)
                       lane_to_change = 0; //Avoid to the left
                   else
                       lane_to_change = 1; //Avoid to the left
+                  */
               }
-              else
-              {
+              //else
+              //{
                   //Keeping current lane
                   lane_to_change = lane;
-              }
+              //}
 
               //Slowing down or speeding up at 0.1 m/s in 0.02 seconds or 5 m/s2
               //@TODO: Only slowing down if too close and can't change lane.
