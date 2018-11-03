@@ -316,11 +316,9 @@ int main()
       map_waypoints_dy.push_back(d_y);
   }
 
-  int lane = 0;
-  int lane_to_change = 0;
   double ref_vel = 0.0;
 
-  h.onMessage([&map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy, &lane, &lane_to_change, &ref_vel](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
+  h.onMessage([&map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy, &ref_vel](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                      uWS::OpCode opCode) {
     // "42" at the start of the message means there's a websocket message event.
     // The 4 signifies a websocket message
@@ -386,34 +384,42 @@ int main()
               //End of previous path.
               double proj_s = car_s;
 
-              //Avoidance
+              //s of end of previous path
               if(prev_size > 0)
               {
                   proj_s = end_path_s;
               }
 
-              //Current lane
-              lane = find_lane(car_d);
+              //Current car lane
+              int car_lane = find_lane(car_d);
 
-              //Potential lane to change
-              lane_to_change = lane;
+              //Lane of end of previous path
+              int proj_lane = car_lane;
+
+              if(prev_size > 0)
+              {
+                  proj_lane = find_lane(end_path_d);
+              }
+
+              //Potential lane to change, initialised to the lane of the end of the previous path
+              int lane_to_change = proj_lane;
 
               double d_front = 0.0;
               double d_back  = 0.0;
 
-              //Distance check for the current lane
-              distance_check(cars_on_lanes[lane], (prev_size * 0.02), proj_s, car_s, d_front, d_back);
-              std::cout << "Current lane: " << lane << ", Min D Front: " << d_front << ", Min D Back: " << d_back << std::endl;
+              //Distance check for the lane of the end of previous path
+              distance_check(cars_on_lanes[proj_lane], (prev_size * 0.02), proj_s, car_s, d_front, d_back);
+              std::cout << "Car lane: " << car_lane << ", End of prev. path lane: " << proj_lane << ", Min D Front: " << d_front << ", Min D Back: " << d_back << std::endl;
 
               //If the car is getting to close to one in front
-              bool check_lane_change = (d_front > 0.0) && (d_front < 25.0);
-              bool too_close = false;
+              bool check_lane_change = (d_front > 0.0) && (d_front < 30.0);
+              bool getting_too_close = false;
 
               if(check_lane_change)
               {
                   std::cout << "Start checking for lane change" << std::endl;
 
-                  vector<vector<int>> lanes_for_change = lanes_to_check_for_change(lane);
+                  vector<vector<int>> lanes_for_change = lanes_to_check_for_change(proj_lane);
 
                   //Set cost to max of 1.0 that means impossible to change lane.
                   double cost_change_left  = 1.0;
@@ -464,14 +470,14 @@ int main()
                       if(cost_change_left > cost_change_right)
                       {
                           //Change to right lane
-                          lane_to_change = lane + 1;
+                          lane_to_change = proj_lane + 1;
 
                           std::cout << "CHANGE RIGHT" << std::endl;
                       }
                       else
                       {
                           //Change to left lane
-                          lane_to_change = lane - 1;
+                          lane_to_change = proj_lane - 1;
 
                           std::cout << "CHANGE LEFT" << std::endl;
                       }
@@ -479,27 +485,27 @@ int main()
                   else if(cost_change_left < 1.0)
                   {
                       //Can only change to left lane
-                      lane_to_change = lane - 1;
+                      lane_to_change = proj_lane - 1;
 
                       std::cout << "CHANGE LEFT" << std::endl;
                   }
                   else if(cost_change_right < 1.0)
                   {
                       //Can only change to right lane
-                      lane_to_change = lane + 1;
+                      lane_to_change = proj_lane + 1;
 
                       std::cout << "CHANGE RIGHT" << std::endl;
                   }
                   else
                   {
                        //Otherwise no change lane and slow down
-                       too_close = true;
+                       getting_too_close = true;
                        std::cout << "GETTING TOO CLOSE AND CAN'T CHANGE LANE! SLOWING DOWN!" << std::endl;
                   }
               }
 
               //Slowing down or speeding up at 0.1 m/s in 0.02 seconds or 5 m/s2
-              if(too_close)
+              if(getting_too_close)
               {
                   ref_vel -= mps2Mph(0.16);
               }
