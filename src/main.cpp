@@ -237,6 +237,8 @@ vector<vector<int>> lanes_to_check_for_change(int current_lane)
     return ret;
 }
 
+//@TODO: Update distance_check to only check within a radius of 100m, then group cars into front and behind by comparing heading from the ego car to the car
+//The absolute ds calculation then will need to consider wrapping of s after max_s
 void distance_check(const vector<sensor_fusion_data>& check_cars, double proj_time, double proj_s, double current_s, double& closest_d_front, double& closest_d_back)
 {
     double vx    = 0.0;
@@ -318,7 +320,7 @@ int main()
 
   double ref_vel = 0.0;
 
-  h.onMessage([&map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy, &ref_vel](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
+  h.onMessage([&map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy, &max_s, &ref_vel](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                      uWS::OpCode opCode) {
     // "42" at the start of the message means there's a websocket message event.
     // The 4 signifies a websocket message
@@ -380,6 +382,9 @@ int main()
               }
 
               unsigned int prev_size = previous_path_x.size();
+
+              //Handling wrapping around for s
+              std::cout << "Max S: " << max_s << ", Car S: " << car_s << ", End path S: " << end_path_s << std::endl;
 
               //End of previous path.
               double proj_s = car_s;
@@ -582,7 +587,7 @@ int main()
               vector<double> next_x_vals;
               vector<double> next_y_vals;
 
-              for(unsigned int i = 0; i < previous_path_x.size(); ++i)
+              for(unsigned int i = 0; i < prev_size; ++i)
               {
                   next_x_vals.push_back(previous_path_x[i]);
                   next_y_vals.push_back(previous_path_y[i]);
@@ -595,21 +600,27 @@ int main()
               double N           = target_dist / (0.02 * Mph2mps(ref_vel));
               double delta_x     = target_x / N;
 
-              double x_add_on = 0.0;
-              for(unsigned int i = 0; i <= (50 - previous_path_x.size()); ++i)
+              double x_local  = 0.0;
+              double y_local  = 0.0;
+              double x_global = 0.0;
+              double y_global = 0.0;
+
+              //Logging how many added to the previous path.
+              unsigned int i = 0;
+              for(i = 1; i <= (50 - prev_size); ++i)
               {
-                  double x_local = x_add_on + (target_x / N);
-                  double y_local = s(x_local);
+                  x_local = i * delta_x;
+                  y_local = s(x_local);
 
                   //Coverting points from local frame back to global frame
-                  double x_global = (x_local * cos(ref_yaw) - y_local * sin(ref_yaw)) + ref_x;
-                  double y_global = (x_local * sin(ref_yaw) + y_local * cos(ref_yaw)) + ref_y;
+                  x_global = (x_local * cos(ref_yaw) - y_local * sin(ref_yaw)) + ref_x;
+                  y_global = (x_local * sin(ref_yaw) + y_local * cos(ref_yaw)) + ref_y;
 
                   next_x_vals.push_back(x_global);
                   next_y_vals.push_back(y_global);
-
-                  x_add_on = x_local;
               }
+
+              std::cout << "Previous size: " << prev_size << ", Added: " << i << ", Total: " << next_x_vals.size() << std::endl;
 
               //---------------------------------------------------------------
 
