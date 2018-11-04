@@ -418,6 +418,10 @@ int main()
 
               //If the car is getting to close to one in front
               bool check_lane_change = (d_front > 0.0) && (d_front < 30.0);
+
+              //@TODO: d_front from the projected position or from the car position? How to handle if other cars change lanes?
+
+
               bool getting_too_close = false;
 
               if(check_lane_change)
@@ -443,9 +447,9 @@ int main()
 
                       //Calculate cost out from d_front_left and d_back_left
                       //@TODO: Use time instead of distance ?
-                      if( (d_front_left > 30.0) && (d_back_left < -30.0) )
+                      if( (d_front_left > 30.0) && (d_back_left < -20.0) )
                       {
-                          cost_change_left = 60.0 / (d_front_left - d_back_left);
+                          cost_change_left = 50.0 / (d_front_left - d_back_left);
                       }
                   }
 
@@ -462,9 +466,9 @@ int main()
 
                       //Calculate cost out from d_front_right and d_back_right
                       //@TODO: Use time instead of distance?
-                      if( (d_front_right > 30.0) && (d_back_right < -30.0) )
+                      if( (d_front_right > 30.0) && (d_back_right < -20.0) )
                       {
-                          cost_change_right = 60.0 / (d_front_right - d_back_right);
+                          cost_change_right = 50.0 / (d_front_right - d_back_right);
                       }
                   }
 
@@ -512,11 +516,11 @@ int main()
               //Slowing down or speeding up at 0.1 m/s in 0.02 seconds or 5 m/s2
               if(getting_too_close)
               {
-                  ref_vel -= mps2Mph(0.16);
+                  ref_vel -= mps2Mph(0.1);
               }
               else if(ref_vel < 49.5)
               {
-                  ref_vel += mps2Mph(0.16);
+                  ref_vel += mps2Mph(0.1);
               }
 
               //---------------------------------------------------------------
