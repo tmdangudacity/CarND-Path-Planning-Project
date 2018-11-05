@@ -267,6 +267,7 @@ void distance_check(const vector<sensor_fusion_data>& check_cars,
                     double proj_time,
                     double end_path_s,
                     double max_s,
+                    //@TODO: Also output closest distance to the ego car from front and back
                     double& closest_proj_d_front,
                     double& closest_proj_d_back)
 {
@@ -309,6 +310,10 @@ void distance_check(const vector<sensor_fusion_data>& check_cars,
 
         if(range < range_max)
         {
+            vx = check_cars[i].vx;
+            vy = check_cars[i].vy;
+            speed = sqrt(vx * vx + vy * vy);
+
             check_s = check_cars[i].s;
             d_hdg = UnwrapAngle(atan2(dy, dx) - deg2rad(car_yaw));
 
@@ -539,9 +544,9 @@ int main()
 
                       //Calculate cost out from d_front_left and d_back_left
                       //@TODO: Use time instead of distance ?
-                      if( (d_front_left > 30.0) && (d_back_left < -20.0) )
+                      if( (d_front_left > 30.0) && (d_back_left < -15.0) )
                       {
-                          cost_change_left = 50.0 / (d_front_left - d_back_left);
+                          cost_change_left = 45.0 / (d_front_left - d_back_left);
                       }
                   }
 
@@ -559,9 +564,9 @@ int main()
 
                       //Calculate cost out from d_front_right and d_back_right
                       //@TODO: Use time instead of distance?
-                      if( (d_front_right > 30.0) && (d_back_right < -20.0) )
+                      if( (d_front_right > 30.0) && (d_back_right < -15.0) )
                       {
-                          cost_change_right = 50.0 / (d_front_right - d_back_right);
+                          cost_change_right = 45.0 / (d_front_right - d_back_right);
                       }
                   }
 
