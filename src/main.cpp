@@ -222,10 +222,10 @@ int find_lane(double d)
     {
         ret = 2;
     }
-    //else
-    //{
-        //std::cout << "Error! Not within lanes!" << std::endl;
-    //}
+    else
+    {
+        std::cout << "Error! Not within lanes!" << std::endl;
+    }
 
     return ret;
 }
@@ -256,9 +256,6 @@ vector<vector<int>> lanes_to_check_for_change(int current_lane)
     return ret;
 }
 
-//@TODO: Update distance_check to only check within a radius of 100m, then group cars into front and behind by comparing heading from the ego car to the car
-//The absolute ds calculation then will need to consider wrapping of s after max_s
-
 void distance_check(const vector<sensor_fusion_data>& check_cars,
                     double car_x,
                     double car_y,
@@ -267,11 +264,10 @@ void distance_check(const vector<sensor_fusion_data>& check_cars,
                     double proj_time,
                     double end_path_s,
                     double max_s,
-                    //@TODO: Also output closest distance to the ego car from front and back
                     double& closest_proj_d_front,
                     double& closest_proj_d_back)
 {
-    static const double range_max = 100.0;
+    static const double MAX_RANGE = 100.0;
 
     double dx            = 0.0;
     double dy            = 0.0;
@@ -307,7 +303,7 @@ void distance_check(const vector<sensor_fusion_data>& check_cars,
 
         range = sqrt(dx * dx + dy * dy);
 
-        if(range < range_max)
+        if(range < MAX_RANGE)
         {
             vx = check_cars[i].vx;
             vy = check_cars[i].vy;
@@ -340,9 +336,9 @@ void distance_check(const vector<sensor_fusion_data>& check_cars,
                     front_started = true;
                 }
 
-                std::cout << ", Distance: "               << d_to_car
-                          << ", Future distance: "        << d_to_end_path
-                          << ", Closst future distance: " << closest_proj_d_front << std::endl;
+                std::cout << ", Distance: "                << d_to_car
+                          << ", Future distance: "         << d_to_end_path
+                          << ", Closest future distance: " << closest_proj_d_front << std::endl;
             }
             //Back
             else
@@ -371,12 +367,12 @@ void distance_check(const vector<sensor_fusion_data>& check_cars,
         }
         else
         {
-            std::cout << ", Range: " << range << " > max: " << range_max << std::endl;
+            std::cout << ", Range: " << range << " > max: " << MAX_RANGE << std::endl;
         }
     }
 
-    if(!front_started) closest_proj_d_front =  range_max; //If no car on the front
-    if(!back_started)  closest_proj_d_back  = -range_max; //If no car behind
+    if(!front_started) closest_proj_d_front =  MAX_RANGE; //If no car on the front
+    if(!back_started)  closest_proj_d_back  = -MAX_RANGE; //If no car behind
 }
 
 int main()
@@ -478,7 +474,7 @@ int main()
               // Sensor Fusion Data, a list of all other cars on the same side of the road.
               auto sensor_fusion = j[1]["sensor_fusion"];
 
-              //Splitting other car sensor fusion data on lanes
+              //Splitting other sensor fusion data into lanes
               vector< vector<sensor_fusion_data> > cars_on_lanes(3);
               sensor_fusion_data temp_data;
               int lane_id = 0;
@@ -533,14 +529,20 @@ int main()
               //Distance check for the lane of the end of previous path
               distance_check(cars_on_lanes[end_path_lane], car_x, car_y, car_s, car_yaw, (prev_size * DT), used_end_path_s, max_s, d_front, d_back);
 
-              std::cout << "   Car lane: " << car_lane << ", End path lane: " << end_path_lane << ", Closest future D Front: " << d_front << ", Closest Future D Back: " << d_back << std::endl;
+              std::cout << "   Car lane: "              << car_lane
+                        << ", End path lane: "          << end_path_lane
+                        << ", Closest future D Front: " << d_front
+                        << ", Closest Future D Back: "  << d_back
+                        << std::endl;
 
               bool slow_down = false;
 
               if(d_front < 0.0)
               {
                   //Future distance negative: the nearest car falling within the remaining previous path!
-                  std::cout << "   Future D Front: " << d_front << " NEGATIVE! The nearest front car within the path! Reset path!" << std::endl;
+                  std::cout << "   Future D Front: " << d_front
+                            << " NEGATIVE! The nearest front car within the path! Reset path!"
+                            << std::endl;
 
                   slow_down = true;
 
@@ -562,13 +564,16 @@ int main()
                       //@TODO: There could be one lane next to the left that also needs consideration
                       std::cout << "   Checking Left lane change:" << std::endl;
 
-                      int lane_on_left = lanes_for_change[0][0];
+                      int lane_on_left    = lanes_for_change[0][0];
                       double d_front_left = 0.0;
                       double d_back_left  = 0.0;
 
                       distance_check(cars_on_lanes[lane_on_left], car_x, car_y, car_s, car_yaw, (prev_size * DT), used_end_path_s, max_s, d_front_left, d_back_left);
 
-                      std::cout << "   - Left lane: " << lane_on_left << ", D_Front: " << d_front_left << ", D_Back: " << d_back_left << std::endl;
+                      std::cout << "   - Left lane: " << lane_on_left
+                                << ", D_Front: "      << d_front_left
+                                << ", D_Back: "       << d_back_left
+                                << std::endl;
 
                       //Calculate cost to change to the left lane
                       if( (d_front_left > SAFE_FRONT_DISTANCE) && (d_back_left < -SAFE_REAR_DISTANCE) )
@@ -583,13 +588,16 @@ int main()
                       //@TODO: There could be one lane next to the right that also needs consideration
                       std::cout << "   Checking Right lane change:" << std::endl;
 
-                      int lane_on_right = lanes_for_change[1][0];
+                      int lane_on_right    = lanes_for_change[1][0];
                       double d_front_right = 0.0;
                       double d_back_right  = 0.0;
 
                       distance_check(cars_on_lanes[lane_on_right], car_x, car_y, car_s, car_yaw, (prev_size * DT), used_end_path_s, max_s, d_front_right, d_back_right);
 
-                      std::cout << "   - Right lane: " << lane_on_right << ", D_Front: " << d_front_right << ", D_Back: " << d_back_right << std::endl;
+                      std::cout << "   - Right lane: " << lane_on_right
+                                << ", D_Front: "       << d_front_right
+                                << ", D_Back: "        << d_back_right
+                                << std::endl;
 
                       //Calculate cost to change to the right lane
                       if( (d_front_right > SAFE_FRONT_DISTANCE) && (d_back_right < -SAFE_REAR_DISTANCE) )
@@ -599,7 +607,8 @@ int main()
                       }
                   }
 
-                  std::cout << "   Cost to change Left: " << cost_change_left << ", Cost to change Right: " << cost_change_right;
+                  std::cout << "   Cost to change Left: " << cost_change_left
+                            << ", Cost to change Right: " << cost_change_right;
 
                   if( (cost_change_left < 1.0) && (cost_change_right < 1.0) )
                   {
@@ -649,7 +658,7 @@ int main()
               }
 
               //---------------------------------------------------------------
-              //Trajectory generation
+              //Path generation
 
               vector<double> ptsx;
               vector<double> ptsy;
@@ -697,7 +706,6 @@ int main()
               ptsy.push_back(next_wp0[1]);
               ptsy.push_back(next_wp1[1]);
               ptsy.push_back(next_wp2[1]);
-
 
               for(unsigned int i = 0; i < ptsx.size(); ++i)
               {
@@ -770,9 +778,9 @@ int main()
                             << ", Prev.Size: " << prev_size
                             << ", Id: "        << i
                             << ", Size: "      << next_x_vals.size()
-                            << ", Slow down: " << (slow_down ? "Yes":"No")
+                            << ", "            << (slow_down ? "Slow-down":"Speed-up")
                             << ", Accel: "     << accel
-                            << ", V (mps): "   << ref_speed
+                            << ", Vel (mps): " << ref_speed
                             << ", (Mph): "     << mps2Mph(ref_speed)
                             << ", DT: "        << DT
                             << ", Scale: "     << dist_scale
