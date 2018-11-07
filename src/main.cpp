@@ -287,9 +287,8 @@ void distance_check(const vector<sensor_fusion_data>& check_cars,
     bool front_started = false;
     bool back_started  = false;
 
-    std::cout << std::endl;
-    std::cout << "DistanceCheck size: " << check_cars.size() << std::endl;
-    std::cout << " - Car_S: " << car_s << ", End path S: " << end_path_s;
+    std::cout << "   DistanceCheck, size: " << check_cars.size() << std::endl;
+    std::cout << "   - Car S: " << car_s << ", End path S: " << end_path_s;
 
     if(end_path_s < car_s)
     {
@@ -301,7 +300,7 @@ void distance_check(const vector<sensor_fusion_data>& check_cars,
 
     for(unsigned int i = 0; i < check_cars.size(); ++i)
     {
-        std::cout << " - Check car Id: " << (i + 1);
+        std::cout << "   - Check car Id: " << (i + 1);
 
         dx  = check_cars[i].x - car_x;
         dy  = check_cars[i].y - car_y;
@@ -322,13 +321,13 @@ void distance_check(const vector<sensor_fusion_data>& check_cars,
             //Front
             if(fabs(d_hdg) < (0.5 * pi()))
             {
-                std::cout << ", In front, Car_S: " << car_s << ", Check_S: " << check_s;
+                std::cout << ", In front, Car S: " << car_s << ", Check car S: " << check_s;
 
                 //Wrapping around 0/max_s
                 if(check_s < car_s)
                 {
                     check_s += max_s;
-                    std::cout << ", Wrapped Check_S: " << check_s;
+                    std::cout << ", Wrapped Check car S: " << check_s;
                 }
 
                 d_to_car = check_s - car_s;
@@ -341,19 +340,19 @@ void distance_check(const vector<sensor_fusion_data>& check_cars,
                     front_started = true;
                 }
 
-                std::cout << ", D_to_car: "        << d_to_car
-                          << ", D_to_end_path: "   << d_to_end_path
-                          << ", Closest D_front: " << closest_proj_d_front << std::endl;
+                std::cout << ", Distance: "               << d_to_car
+                          << ", Future distance: "        << d_to_end_path
+                          << ", Closst future distance: " << closest_proj_d_front << std::endl;
             }
             //Back
             else
             {
-                std::cout << ", Behind, Car_S: " << car_s << ", Check_S: " << check_s;
+                std::cout << ", Behind, Car S: " << car_s << ", Check car S: " << check_s;
 
                 if(check_s > car_s)
                 {
                     check_s -= max_s;
-                    std::cout << ", Wrapped Check_S: " << check_s;
+                    std::cout << ", Wrapped Check car S: " << check_s;
                 }
 
                 d_to_car = check_s - car_s;
@@ -365,9 +364,9 @@ void distance_check(const vector<sensor_fusion_data>& check_cars,
                     back_started = true;
                 }
 
-                std::cout << ", D_to_car: "        << d_to_car
-                          << ", D_to_end_path: "   << d_to_end_path
-                          << ", Closest D_back: "  << closest_proj_d_back << std::endl;
+                std::cout << ", Distance: "                << d_to_car
+                          << ", Future distance: "         << d_to_end_path
+                          << ", Closest future distance: " << closest_proj_d_back << std::endl;
             }
         }
         else
@@ -419,10 +418,12 @@ int main()
   }
 
   const double DT                  = 0.02;
-  const double MAX_ACCELERATION    = 5.0;      //m/s2
+  const double MAX_ACCELERATION    = 5.0;           //m/s2
   const double MAX_REF_SPEED       = Mph2mps(49.5); //m/s
   const double MIN_REF_SPEED       = Mph2mps(5.0);  //m/s
-  const unsigned int MAX_PATH_SIZE = 50;
+  const double SAFE_FRONT_DISTANCE = 30.0;
+  const double SAFE_REAR_DISTANCE  = 15.0;
+  const unsigned int MAX_PATH_SIZE = 40;
 
   //Current reference speed
   double ref_speed = 0.0;
@@ -438,6 +439,8 @@ int main()
                &MAX_ACCELERATION,
                &MAX_REF_SPEED,
                &MIN_REF_SPEED,
+               &SAFE_FRONT_DISTANCE,
+               &SAFE_REAR_DISTANCE,
                &MAX_PATH_SIZE](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length, uWS::OpCode opCode)
   {
     // "42" at the start of the message means there's a websocket message event.
@@ -525,20 +528,28 @@ int main()
               double d_front = 0.0;
               double d_back  = 0.0;
 
+              std::cout << std::endl;
+
               //Distance check for the lane of the end of previous path
               distance_check(cars_on_lanes[end_path_lane], car_x, car_y, car_s, car_yaw, (prev_size * DT), used_end_path_s, max_s, d_front, d_back);
 
-              std::cout << " - Car lane: " << car_lane << ", End path lane: " << end_path_lane << ", D_Front: " << d_front << ", D_Back: " << d_back << std::endl;
+              std::cout << "   Car lane: " << car_lane << ", End path lane: " << end_path_lane << ", Closest future D Front: " << d_front << ", Closest Future D Back: " << d_back << std::endl;
 
               bool slow_down = false;
 
               if(d_front < 0.0)
               {
-                  std::cout << " - D_Front: " << d_front << ", Car within the previous path! Collision!" << std::endl;
+                  //Future distance negative: the nearest car falling within the remaining previous path!
+                  std::cout << "   Future D Front: " << d_front << " NEGATIVE! The nearest front car within the path! Reset path!" << std::endl;
+
+                  slow_down = true;
+
+                  //Reset the whole previous path
+                  prev_size = 0;
               }
-              else if(d_front < 30.0)
+              else if(d_front < SAFE_FRONT_DISTANCE)
               {
-                  std::cout << " - Start checking for lane change" << std::endl;
+                  std::cout << "   Start checking for lane change:" << std::endl;
 
                   vector<vector<int>> lanes_for_change = lanes_to_check_for_change(end_path_lane);
 
@@ -546,47 +557,49 @@ int main()
                   double cost_change_left  = 1.0;
                   double cost_change_right = 1.0;
 
-                  //Left lane change
                   if(lanes_for_change[0].size())
                   {
                       //@TODO: There could be one lane next to the left that also needs consideration
+                      std::cout << "   Checking Left lane change:" << std::endl;
+
                       int lane_on_left = lanes_for_change[0][0];
                       double d_front_left = 0.0;
                       double d_back_left  = 0.0;
 
                       distance_check(cars_on_lanes[lane_on_left], car_x, car_y, car_s, car_yaw, (prev_size * DT), used_end_path_s, max_s, d_front_left, d_back_left);
 
-                      std::cout << " - Left lane: " << lane_on_left << ", D_Front: " << d_front_left << ", D_Back: " << d_back_left << std::endl;
+                      std::cout << "   - Left lane: " << lane_on_left << ", D_Front: " << d_front_left << ", D_Back: " << d_back_left << std::endl;
 
-                      //Calculate cost out from d_front_left and d_back_left
-                      //@TODO: Use time instead of distance ?
-                      if( (d_front_left > 30.0) && (d_back_left < -15.0) )
+                      //Calculate cost to change to the left lane
+                      if( (d_front_left > SAFE_FRONT_DISTANCE) && (d_back_left < -SAFE_REAR_DISTANCE) )
                       {
-                          cost_change_left = 45.0 / (d_front_left - d_back_left);
+                          //Cost function
+                          cost_change_left = (SAFE_FRONT_DISTANCE + SAFE_REAR_DISTANCE) / (d_front_left - d_back_left);
                       }
                   }
 
-                  //Right lane change
                   if(lanes_for_change[1].size())
                   {
                       //@TODO: There could be one lane next to the right that also needs consideration
+                      std::cout << "   Checking Right lane change:" << std::endl;
+
                       int lane_on_right = lanes_for_change[1][0];
                       double d_front_right = 0.0;
                       double d_back_right  = 0.0;
 
                       distance_check(cars_on_lanes[lane_on_right], car_x, car_y, car_s, car_yaw, (prev_size * DT), used_end_path_s, max_s, d_front_right, d_back_right);
 
-                      std::cout << " - Right lane: " << lane_on_right << ", D_Front: " << d_front_right << ", D_Back: " << d_back_right << std::endl;
+                      std::cout << "   - Right lane: " << lane_on_right << ", D_Front: " << d_front_right << ", D_Back: " << d_back_right << std::endl;
 
-                      //Calculate cost out from d_front_right and d_back_right
-                      //@TODO: Use time instead of distance?
-                      if( (d_front_right > 30.0) && (d_back_right < -15.0) )
+                      //Calculate cost to change to the right lane
+                      if( (d_front_right > SAFE_FRONT_DISTANCE) && (d_back_right < -SAFE_REAR_DISTANCE) )
                       {
-                          cost_change_right = 45.0 / (d_front_right - d_back_right);
+                          //Cost function
+                          cost_change_right = (SAFE_FRONT_DISTANCE + SAFE_REAR_DISTANCE) / (d_front_right - d_back_right);
                       }
                   }
 
-                  std::cout << " - Cost to change Left: " << cost_change_left << ", Cost to change Right: " << cost_change_right;
+                  std::cout << "   Cost to change Left: " << cost_change_left << ", Cost to change Right: " << cost_change_right;
 
                   if( (cost_change_left < 1.0) && (cost_change_right < 1.0) )
                   {
@@ -607,14 +620,14 @@ int main()
                   }
                   else if(cost_change_left < 1.0)
                   {
-                      //Can only change to left lane
+                      //Change to left lane is the only option
                       lane_to_change = end_path_lane - 1;
 
                       std::cout << ", Change to Left lane";
                   }
                   else if(cost_change_right < 1.0)
                   {
-                      //Can only change to right lane
+                      //Change to right lane is the only option
                       lane_to_change = end_path_lane + 1;
 
                       std::cout << ", Change to Right lane";
@@ -632,14 +645,8 @@ int main()
               double accel = MAX_ACCELERATION;
               if(slow_down)
               {
-                  //ref_speed -= mps2Mph(accel * DT);
                   accel = -MAX_ACCELERATION;
               }
-
-              //else if(ref_speed < 49.5)
-              //{
-              //    ref_speed += mps2Mph(accel * DT);
-              //}
 
               //---------------------------------------------------------------
               //Trajectory generation
@@ -704,12 +711,12 @@ int main()
 
               //Spline interpolation in local frame to avoid "singularity" in X axis
               tk::spline s;
-
               s.set_points(ptsx, ptsy);
 
               vector<double> next_x_vals;
               vector<double> next_y_vals;
 
+              //Building path
               for(unsigned int i = 0; i < prev_size; ++i)
               {
                   next_x_vals.push_back(previous_path_x[i]);
@@ -759,7 +766,7 @@ int main()
                   next_x_vals.push_back(x_global);
                   next_y_vals.push_back(y_global);
 
-                  std::cout << " - PathGen"
+                  std::cout << " PathGen"
                             << ", Prev.Size: " << prev_size
                             << ", Id: "        << i
                             << ", Size: "      << next_x_vals.size()
