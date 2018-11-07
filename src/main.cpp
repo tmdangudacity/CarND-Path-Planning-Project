@@ -418,11 +418,27 @@ int main()
       map_waypoints_dy.push_back(d_y);
   }
 
-  const double DT = 0.02;
+  const double DT                  = 0.02;
+  const double MAX_ACCELERATION    = 5.0;      //m/s2
+  const double MAX_REF_SPEED       = Mph2mps(49.5); //m/s
+  const double MIN_REF_SPEED       = Mph2mps(5.0);  //m/s
+  const unsigned int MAX_PATH_SIZE = 50;
 
-  double ref_vel = 0.0;
+  //Current reference speed
+  double ref_speed = 0.0;
 
-  h.onMessage([&map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy, &max_s, &ref_vel, &DT](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length, uWS::OpCode opCode)
+  h.onMessage([&map_waypoints_x,
+               &map_waypoints_y,
+               &map_waypoints_s,
+               &map_waypoints_dx,
+               &map_waypoints_dy,
+               &max_s,
+               &ref_speed,
+               &DT,
+               &MAX_ACCELERATION,
+               &MAX_REF_SPEED,
+               &MIN_REF_SPEED,
+               &MAX_PATH_SIZE](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length, uWS::OpCode opCode)
   {
     // "42" at the start of the message means there's a websocket message event.
     // The 4 signifies a websocket message
@@ -613,17 +629,17 @@ int main()
                   std::cout << std::endl;
               }
 
-              //Slowing down or speeding up at 0.1 m/s in 0.02 seconds or 5 m/s2
-              double accel = 5.0; //5 m/s2
-
+              double accel = MAX_ACCELERATION;
               if(slow_down)
               {
-                  ref_vel -= mps2Mph(accel * DT);
+                  //ref_speed -= mps2Mph(accel * DT);
+                  accel = -MAX_ACCELERATION;
               }
-              else if(ref_vel < 49.5)
-              {
-                  ref_vel += mps2Mph(accel * DT);
-              }
+
+              //else if(ref_speed < 49.5)
+              //{
+              //    ref_speed += mps2Mph(accel * DT);
+              //}
 
               //---------------------------------------------------------------
               //Trajectory generation
@@ -704,19 +720,36 @@ int main()
               double target_y = s(target_x);
 
               double target_dist = sqrt((target_x * target_x) + (target_y * target_y));
-              double N           = target_dist / (0.02 * Mph2mps(ref_vel));
-              double delta_x     = target_x / N;
+              double dist_scale  = target_x / target_dist;
 
               double x_local  = 0.0;
               double y_local  = 0.0;
               double x_global = 0.0;
               double y_global = 0.0;
 
+              double point_spacing = 0.0;
+
               //Logging how many added to the previous path.
               unsigned int add_count = 0;
-              for(unsigned int i = 1; i <= (50 - prev_size); ++i)
+
+              for(unsigned int i = 1; i <= (MAX_PATH_SIZE - prev_size); ++i)
               {
-                  x_local = i * delta_x;
+                  //Limiting speed and acceleration
+                  if(slow_down && (!(ref_speed > MIN_REF_SPEED)))
+                  {
+                      ref_speed = MIN_REF_SPEED;
+                      accel = 0.0;
+                  }
+                  else if( (!slow_down) && (!(ref_speed < MAX_REF_SPEED)) )
+                  {
+                      ref_speed = MAX_REF_SPEED;
+                      accel = 0.0;
+                  }
+
+                  point_spacing = (ref_speed * DT + 0.5 * accel * DT * DT) * dist_scale;
+
+                  //x_local = i * delta_x;
+                  x_local += point_spacing;
                   y_local = s(x_local);
 
                   //Coverting points from local frame back to global frame
@@ -726,10 +759,28 @@ int main()
                   next_x_vals.push_back(x_global);
                   next_y_vals.push_back(y_global);
 
+                  std::cout << " - PathGen"
+                            << ", Prev.Size: " << prev_size
+                            << ", Id: "        << i
+                            << ", Size: "      << next_x_vals.size()
+                            << ", Slow down: " << (slow_down ? "Yes":"No")
+                            << ", Accel: "     << accel
+                            << ", V (mps): "   << ref_speed
+                            << ", (Mph): "     << mps2Mph(ref_speed)
+                            << ", DT: "        << DT
+                            << ", Scale: "     << dist_scale
+                            << ", Spacing: "   << point_spacing
+                            << ", X_l: "       << x_local
+                            << ", Y_l: "       << y_local
+                            << ", X_g: "       << x_global
+                            << ", Y_g: "       << y_global
+                            << std::endl;
+
+                  //Updating speed
+                  ref_speed += accel * DT;
+
                   ++add_count;
               }
-
-              std::cout << " - Previous path size: " << prev_size << ", Added: " << add_count << ", Total: " << next_x_vals.size() << std::endl;
 
               //---------------------------------------------------------------
 
@@ -744,6 +795,7 @@ int main()
               ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
         }
       } else {
+
         // Manual driving
         std::string msg = "42[\"manual\",{}]";
         ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
