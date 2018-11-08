@@ -15,26 +15,10 @@ using namespace std;
 // for convenience
 using json = nlohmann::json;
 
-struct sensor_fusion_data
-{
-    unsigned int id;
-    double x;
-    double y;
-    double vx;
-    double vy;
-    double s;
-    double d;
-};
-
 // For converting back and forth between radians and degrees.
 constexpr double pi() { return M_PI; }
 double deg2rad(double x) { return (x * pi()  / 180.0); }
 double rad2deg(double x) { return (x * 180.0 / pi() ); }
-
-// For converting back and forth between Miles per hour and meters per second.
-double Mph2mps(double x) { return (x * 1.60934 / 3.6); }
-double mps2Mph(double x) { return (x * 3.6 / 1.60934); }
-
 // Checks if the SocketIO event has JSON data.
 // If there is data the JSON object in string format will be returned,
 // else the empty string "" will be returned.
@@ -175,6 +159,31 @@ vector<double> getXY(double s, double d, const vector<double> &maps_s, const vec
     return {x,y};
 }
 
+
+//A data structure for sensor fusion data
+struct sensor_fusion_data
+{
+    unsigned int id;
+    double x;
+    double y;
+    double vx;
+    double vy;
+    double s;
+    double d;
+};
+
+//For converting back and forth between Miles per hour and meters per second.
+double Mph2mps(double x)
+{
+    return (x * 1.60934 / 3.6);
+}
+
+double mps2Mph(double x)
+{
+    return (x * 3.6 / 1.60934);
+}
+
+//Unwrapping angle between Pi and -Pi radians
 double UnwrapAngle(double in_angle)
 {
     double ret = in_angle;
@@ -194,6 +203,7 @@ double UnwrapAngle(double in_angle)
     return ret;
 }
 
+//Finding the car's lane from Frenet coordinate d
 int find_lane(double d)
 {
     //Lane 0 limits
@@ -230,6 +240,7 @@ int find_lane(double d)
     return ret;
 }
 
+//Returning possible lanes for lane changing
 vector<vector<int>> lanes_to_check_for_change(int current_lane)
 {
     vector<vector<int>> ret(2);
@@ -256,6 +267,7 @@ vector<vector<int>> lanes_to_check_for_change(int current_lane)
     return ret;
 }
 
+//Calculating projected distance in front and at the back of the car on a lane
 void distance_check(const vector<sensor_fusion_data>& check_cars,
                     double car_x,
                     double car_y,
@@ -267,6 +279,7 @@ void distance_check(const vector<sensor_fusion_data>& check_cars,
                     double& closest_proj_d_front,
                     double& closest_proj_d_back)
 {
+    //Maximum range of checking is within a radius of 100.0 meters.
     static const double MAX_RANGE = 100.0;
 
     double dx            = 0.0;
@@ -286,6 +299,7 @@ void distance_check(const vector<sensor_fusion_data>& check_cars,
     std::cout << "   DistanceCheck, size: " << check_cars.size() << std::endl;
     std::cout << "   - Car S: " << car_s << ", End path S: " << end_path_s;
 
+    //Wrapping projected distance s when the ego car is about to complete a lap of max s
     if(end_path_s < car_s)
     {
         end_path_s  += max_s;
@@ -314,7 +328,8 @@ void distance_check(const vector<sensor_fusion_data>& check_cars,
 
             std::cout << ", D_Hdg: " << rad2deg(d_hdg);
 
-            //Front
+            //If the relative heading to the ego car is less then 90 degrees,
+            //the car is considered in front of the ego car
             if(fabs(d_hdg) < (0.5 * pi()))
             {
                 std::cout << ", In front, Car S: " << car_s << ", Check car S: " << check_s;
@@ -329,7 +344,7 @@ void distance_check(const vector<sensor_fusion_data>& check_cars,
                 d_to_car = check_s - car_s;
                 d_to_end_path = check_s + proj_time * speed - end_path_s;
 
-
+                //Closest projected distance ahead
                 if( (!front_started) || (d_to_end_path < closest_proj_d_front) )
                 {
                     closest_proj_d_front = d_to_end_path;
@@ -345,6 +360,7 @@ void distance_check(const vector<sensor_fusion_data>& check_cars,
             {
                 std::cout << ", Behind, Car S: " << car_s << ", Check car S: " << check_s;
 
+                //Wrapping around 0/max_s
                 if(check_s > car_s)
                 {
                     check_s -= max_s;
@@ -354,6 +370,7 @@ void distance_check(const vector<sensor_fusion_data>& check_cars,
                 d_to_car = check_s - car_s;
                 d_to_end_path = check_s + proj_time * speed - end_path_s;
 
+                //Closest projected distance behind
                 if( (!back_started)|| (d_to_end_path > closest_proj_d_back))
                 {
                     closest_proj_d_back = d_to_end_path;
@@ -371,8 +388,8 @@ void distance_check(const vector<sensor_fusion_data>& check_cars,
         }
     }
 
-    if(!front_started) closest_proj_d_front =  MAX_RANGE; //If no car on the front
-    if(!back_started)  closest_proj_d_back  = -MAX_RANGE; //If no car behind
+    if(!front_started) closest_proj_d_front =  MAX_RANGE; //If no car within maximum range ahead
+    if(!back_started)  closest_proj_d_back  = -MAX_RANGE; //If no car within maximum range behind
 }
 
 int main()
@@ -418,7 +435,7 @@ int main()
   const double MAX_REF_SPEED       = Mph2mps(49.5); //m/s
   const double MIN_REF_SPEED       = Mph2mps(5.0);  //m/s
   const double SAFE_FRONT_DISTANCE = 30.0;
-  const double SAFE_REAR_DISTANCE  = 15.0;
+  const double SAFE_REAR_DISTANCE  = 20.0;
   const unsigned int MAX_PATH_SIZE = 40;
 
   //Current reference speed
@@ -444,7 +461,7 @@ int main()
     // The 2 signifies a websocket event
     //auto sdata = string(data).substr(0, length);
     //cout << sdata << endl;
-    if (length && length > 2 && data[0] == '4' && data[1] == '2') 
+    if (length && length > 2 && data[0] == '4' && data[1] == '2')
     {
       auto s = hasData(data);
 
@@ -474,7 +491,7 @@ int main()
               // Sensor Fusion Data, a list of all other cars on the same side of the road.
               auto sensor_fusion = j[1]["sensor_fusion"];
 
-              //Splitting other sensor fusion data into lanes
+              //Sorting sensor fusion data into lanes
               vector< vector<sensor_fusion_data> > cars_on_lanes(3);
               sensor_fusion_data temp_data;
               int lane_id = 0;
@@ -497,6 +514,7 @@ int main()
                   }
               }
 
+              //Remaining size of the previous path
               unsigned int prev_size = previous_path_x.size();
 
               //End of previous path.
@@ -546,7 +564,7 @@ int main()
 
                   slow_down = true;
 
-                  //Reset the whole previous path
+                  //Reset the previous path
                   prev_size = 0;
               }
               else if(d_front < SAFE_FRONT_DISTANCE)
@@ -561,7 +579,6 @@ int main()
 
                   if(lanes_for_change[0].size())
                   {
-                      //@TODO: There could be one lane next to the left that also needs consideration
                       std::cout << "   Checking Left lane change:" << std::endl;
 
                       int lane_on_left    = lanes_for_change[0][0];
@@ -578,14 +595,12 @@ int main()
                       //Calculate cost to change to the left lane
                       if( (d_front_left > SAFE_FRONT_DISTANCE) && (d_back_left < -SAFE_REAR_DISTANCE) )
                       {
-                          //Cost function
                           cost_change_left = (SAFE_FRONT_DISTANCE + SAFE_REAR_DISTANCE) / (d_front_left - d_back_left);
                       }
                   }
 
                   if(lanes_for_change[1].size())
                   {
-                      //@TODO: There could be one lane next to the right that also needs consideration
                       std::cout << "   Checking Right lane change:" << std::endl;
 
                       int lane_on_right    = lanes_for_change[1][0];
@@ -602,7 +617,6 @@ int main()
                       //Calculate cost to change to the right lane
                       if( (d_front_right > SAFE_FRONT_DISTANCE) && (d_back_right < -SAFE_REAR_DISTANCE) )
                       {
-                          //Cost function
                           cost_change_right = (SAFE_FRONT_DISTANCE + SAFE_REAR_DISTANCE) / (d_front_right - d_back_right);
                       }
                   }
@@ -616,29 +630,26 @@ int main()
                       {
                           //Change to right lane
                           lane_to_change = end_path_lane + 1;
-
                           std::cout << ", Change to Right lane";
                       }
                       else
                       {
                           //Change to left lane
                           lane_to_change = end_path_lane - 1;
-
                           std::cout << ", Change to Left lane";
+
                       }
                   }
                   else if(cost_change_left < 1.0)
                   {
                       //Change to left lane is the only option
                       lane_to_change = end_path_lane - 1;
-
                       std::cout << ", Change to Left lane";
                   }
                   else if(cost_change_right < 1.0)
                   {
                       //Change to right lane is the only option
                       lane_to_change = end_path_lane + 1;
-
                       std::cout << ", Change to Right lane";
                   }
                   else
@@ -731,9 +742,9 @@ int main()
                   next_y_vals.push_back(previous_path_y[i]);
               }
 
-              double target_x = 30.0;
-              double target_y = s(target_x);
-
+              //Linearising the beginning part of the spline for x up to 30
+              double target_x    = 30.0;
+              double target_y    = s(target_x);
               double target_dist = sqrt((target_x * target_x) + (target_y * target_y));
               double dist_scale  = target_x / target_dist;
 
@@ -743,9 +754,6 @@ int main()
               double y_global = 0.0;
 
               double point_spacing = 0.0;
-
-              //Logging how many added to the previous path.
-              unsigned int add_count = 0;
 
               for(unsigned int i = 1; i <= (MAX_PATH_SIZE - prev_size); ++i)
               {
@@ -761,9 +769,9 @@ int main()
                       accel = 0.0;
                   }
 
+                  //Calculating linearised distance on spline and scale to increment of x coordinate
                   point_spacing = (ref_speed * DT + 0.5 * accel * DT * DT) * dist_scale;
 
-                  //x_local = i * delta_x;
                   x_local += point_spacing;
                   y_local = s(x_local);
 
@@ -793,8 +801,6 @@ int main()
 
                   //Updating speed
                   ref_speed += accel * DT;
-
-                  ++add_count;
               }
 
               //---------------------------------------------------------------
