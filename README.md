@@ -52,7 +52,11 @@ make clean; make
 
 #### The car is able to drive at least 4.32 miles without incident.
 
-* A screenshot of a test run was captured in [Result.png](./Result.png)
+* Following is the screenshot of a test run:
+
+
+![Test run](./Result.png)
+
 
 #### The car drives according to the speed limit.
 * The car speed could get up to a limit of 49.5 mph set at line 435 of [main.cpp](./src/main.cpp)
